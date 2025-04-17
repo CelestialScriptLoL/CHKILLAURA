@@ -163,23 +163,32 @@ end
 
 --// HOOKEO DE FireServer PARA CAPTURAR remoteName
 local remoteNameActual = nil
-local originalFireServer = nil
+local originalFireServer
+originalFireServer = hookmetamethod(game, "__namecall", function(self, ...)
+    local args = { ... }
+    local method = getnamecallmethod()
 
-local function hookFireServer()
-    local remoteEvent = ReplicatedStorage:WaitForChild("network"):WaitForChild("RemoteEvent"):WaitForChild("playerRequest_damageEntity_batch")
-    originalFireServer = originalFireServer or remoteEvent.FireServer
+    if not checkcaller() and method == "FireServer" and typeof(self) == "Instance" and self:IsA("RemoteEvent") then
+        if self.Name == "playerRequest_damageEntity_batch" then
+            local data = args[1]
+            if typeof(data) == "table" and typeof(data[1]) == "table" and typeof(data[1][1]) == "table" then
+                local attackInfo = data[1][1]
+                local guid = attackInfo[6]
+                local id = attackInfo[4]
+                local remoteName = attackInfo[5]
 
-    remoteEvent.FireServer = function(self, ...)
-        local args = {...}
-        if typeof(args[1]) == "table" and typeof(args[1][1]) == "table" and args[1][1][5] then
-            remoteNameActual = args[1][1][5]
-            print("RemoteName detectado:", remoteNameActual)
+                if guid ~= cachedGUID then
+                    cachedGUID = guid
+                    cachedID = id
+                    cachedRemoteName = remoteName
+                    print("Nuevo GUID detectado desde hook:", guid, "ID:", id, "RemoteName:", remoteName)
+                end
+            end
         end
-        return originalFireServer(self, ...)
     end
-end
 
-hookFireServer()
+    return originalFireServer(self, ...)
+end)
 
 --// CACHE DE DATOS
 local cachedGUID, cachedID, cachedMobs = nil, nil, {}
