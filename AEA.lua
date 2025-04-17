@@ -104,7 +104,7 @@ local listaDeMobs = {
     "Skeleton", "Skull Boss", "Slime", "Snel", "Soulcage", "Spider", "Spider Queen",
     "Spiderling", "Stingtail", "Sunken Savage", "Terror of the Deep", "The Yeti",
     "Toni", "Tortoise", "Treemuk", "Tribute Gate", "Trickster Spirit", "Tumbleweed",
-    "Undead", "Wisp", "Ronin"
+    "Undead", "Wisp"
 }
 
 --// FUNCIONES DE UTILIDAD PARA GUID E ID
@@ -156,7 +156,6 @@ local function getRemoteNamesFromID(id)
             return data.RemoteNames
         end
     end
-    return {"explosion1"} -- Fallback por si no se encuentra
 end
 
 --// FUNCION PARA DETECTAR MOBS PRESENTES EN EL MAPA
@@ -183,16 +182,17 @@ task.spawn(function()
         if nuevoGUID and nuevoGUID ~= cachedGUID then
             cachedGUID = nuevoGUID
             cachedID = nuevoID
+            print("Nuevo GUID detectado:", cachedGUID, "ID:", cachedID)
         end
         task.wait(0.1)
     end
 end)
 
---// ACTUALIZAR MOBS CADA 0.5s (Reduce frecuencia para optimizar)
+--// ACTUALIZAR MOBS CADA 0.1s
 task.spawn(function()
     while true do
         cachedMobs = obtenerMobsActuales()
-        task.wait(0.5) -- Reduce la carga de trabajo
+        task.wait(0.1)
     end
 end)
 
@@ -208,7 +208,7 @@ task.spawn(function()
                     for _, remoteName in ipairs(remoteNames) do
                         local ataques = {}
 
-                        for i = 1, 15 do
+                        for i = 1, 5 do
                             table.insert(ataques, {
                                 mobPart,
                                 mobPart.Position,
@@ -220,14 +220,15 @@ task.spawn(function()
                         end
 
                         remoteEvent:FireServer(ataques)
-                        task.wait(0.01) -- Ajusta espera para evitar sobrecarga
+                        print("Ataque x15 enviado a:", mobPart.Name, "| Remote:", remoteName, "| ID:", cachedID)
+                        task.wait(0.01)
                     end
                 end
             end
         end)
 
         if not success then
-            -- En caso de error, no mostrar ningún warning
+            warn("Error al enviar RemoteEvent:", err)
         end
 
         task.wait(0.1)
