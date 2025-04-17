@@ -211,6 +211,6 @@ task.spawn(function()
             atacarTodosLosMobs(abilityGUIDGuardado, abilityIDGuardado)
         end
 
-        task.wait(0.1)
+        task.wait(0.5)
     end
 end)
