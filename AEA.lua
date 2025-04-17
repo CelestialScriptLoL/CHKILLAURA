@@ -156,6 +156,7 @@ local function getRemoteNamesFromID(id)
             return data.RemoteNames
         end
     end
+    return {"explosion1"} -- Fallback por si no se encuentra
 end
 
 --// FUNCION PARA DETECTAR MOBS PRESENTES EN EL MAPA
@@ -208,7 +209,7 @@ task.spawn(function()
                     for _, remoteName in ipairs(remoteNames) do
                         local ataques = {}
 
-                        for i = 1, 5 do
+                        for i = 1, 2 do
                             table.insert(ataques, {
                                 mobPart,
                                 mobPart.Position,
