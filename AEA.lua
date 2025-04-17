@@ -104,7 +104,7 @@ local listaDeMobs = {
     "Skeleton", "Skull Boss", "Slime", "Snel", "Soulcage", "Spider", "Spider Queen",
     "Spiderling", "Stingtail", "Sunken Savage", "Terror of the Deep", "The Yeti",
     "Toni", "Tortoise", "Treemuk", "Tribute Gate", "Trickster Spirit", "Tumbleweed",
-    "Undead", "Wisp"
+    "Undead", "Wisp", "Ronin"
 }
 
 --// FUNCIONES DE UTILIDAD PARA GUID E ID
@@ -130,46 +130,106 @@ local function getAbilityGUIDAndID()
     local charModel = workspace.placeFolders.entityManifestCollection:FindFirstChild(player.Name)
     if not charModel then return nil end
 
-    local currentAbilityGUID, currentAbilityID = getAbilityGUIDFromData(charModel:GetChildren())
-    return currentAbilityGUID, currentAbilityID
-end
+    local Hitbox = charModel:FindFirstChild("hitbox")
+    if not Hitbox then return nil end
 
---// HOOKING DEL REMOTEEVENT Y FIRE SERVER
-local oldNamecall
-oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-    local args = { ... }
-    local method = getnamecallmethod()
+    local ExecutionDataValue = Hitbox:FindFirstChild("activeAbilityExecutionData")
+    if not ExecutionDataValue or not ExecutionDataValue.Value then return nil end
 
-    -- Solo se dispara cuando es playerRequest_damageEntity_batch
-    if method == "FireServer" and tostring(self) == "playerRequest_damageEntity_batch" then
-        local data = args[1]
-        if typeof(data) == "table" and typeof(data[1]) == "table" and typeof(data[1][1]) == "Instance" then
-            local hitData = data[1]
-
-            local mobName = hitData[1].Name
-            local mobPos = hitData[2]
-            local damageType = hitData[3]
-            local cachedID = hitData[4]
-            local remoteName = hitData[5]
-            local abilityGUID = hitData[6]
-
-            if damageType == "ability" and remoteNamesWhitelist[remoteName] then
-                currentAbilityGUID = abilityGUID
-                currentRemoteName = remoteName
-            end
-        end
+    local success, parsed = pcall(function()
+        return HttpService:JSONDecode(ExecutionDataValue.Value)
+    end)
+    if not success or typeof(parsed) ~= "table" then
+        return nil
     end
 
-    return oldNamecall(self, ...)
-end)
+    if isValidExecutionData(parsed) then
+        return parsed["ability-guid"], parsed["id"]
+    end
 
--- Función que ejecuta las habilidades
+    return getAbilityGUIDFromData(parsed)
+end
+
+local function getRemoteNamesFromID(id)
+    for _, data in pairs(abilityData) do
+        if data.ID == id then
+            return data.RemoteNames
+        end
+    end
+    return {"explosion1"} -- Fallback por si no se encuentra
+end
+
+--// FUNCION PARA DETECTAR MOBS PRESENTES EN EL MAPA
+local function obtenerMobsActuales()
+    local mobs = {}
+    for _, mobName in ipairs(listaDeMobs) do
+        local mobPart = workspace.placeFolders.entityManifestCollection:FindFirstChild(mobName)
+        if mobPart and mobPart:IsA("BasePart") then
+            table.insert(mobs, mobPart)
+        end
+    end
+    return mobs
+end
+
+--// DATOS CACHEADOS
+local cachedGUID = nil
+local cachedID = nil
+local cachedMobs = {}
+
+--// ACTUALIZAR GUID E ID CADA 0.1s
 task.spawn(function()
     while true do
-        task.wait(0.2)
-
-        if currentAbilityGUID and currentRemoteName then
-            -- Haz un cambio o usa lo que necesitas aquí, y luego manda la habilidad con esos datos
+        local nuevoGUID, nuevoID = getAbilityGUIDAndID()
+        if nuevoGUID and nuevoGUID ~= cachedGUID then
+            cachedGUID = nuevoGUID
+            cachedID = nuevoID
         end
+        task.wait(0.1)
+    end
+end)
+
+--// ACTUALIZAR MOBS CADA 0.5s (Reduce frecuencia para optimizar)
+task.spawn(function()
+    while true do
+        cachedMobs = obtenerMobsActuales()
+        task.wait(0.5) -- Reduce la carga de trabajo
+    end
+end)
+
+--// ENVIAR RemoteEvent CADA 0.1s (1 mob a la vez, 15 ataques c/u)
+task.spawn(function()
+    while true do
+        local success, err = pcall(function()
+            if cachedGUID and cachedID and #cachedMobs > 0 then
+                local remoteEvent = ReplicatedStorage:WaitForChild("network"):WaitForChild("RemoteEvent"):WaitForChild("playerRequest_damageEntity_batch")
+                local remoteNames = getRemoteNamesFromID(cachedID)
+
+                for _, mobPart in ipairs(cachedMobs) do
+                    for _, remoteName in ipairs(remoteNames) do
+                        local ataques = {}
+
+                        for i = 1, 15 do
+                            table.insert(ataques, {
+                                mobPart,
+                                mobPart.Position,
+                                "ability",
+                                cachedID,
+                                remoteName,
+                                cachedGUID
+                            })
+                        end
+
+                        remoteEvent:FireServer(ataques)
+                        task.wait(0.01) -- Ajusta espera para evitar sobrecarga
+                    end
+                end
+            end
+        end)
+
+        if not success then
+            -- En caso de error, no mostrar ningún warning
+        end
+
+        task.wait(0.1)
     end
 end)
