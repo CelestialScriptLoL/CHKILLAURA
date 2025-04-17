@@ -210,7 +210,7 @@ task.spawn(function()
                     for _, remoteName in ipairs(remoteNames) do
                         local ataques = {}
 
-                        for i = 1, 15 do
+                        for i = 1, 2 do
                             table.insert(ataques, {
                                 mobPart,
                                 mobPart.Position,
