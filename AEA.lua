@@ -1,16 +1,90 @@
 --// SERVICIOS
+local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
---// VARIABLES GLOBALES
-local player = Players.LocalPlayer
-local originalFireServer
-local cachedGUID = nil
-local cachedID = nil
-local cachedRemoteName = nil
-local cachedMobs = {}
+--// BASE DE DATOS DE HABILIDADES
+local abilityData = {
+    -- Starter Abilities
+    ["Rock Throw"] = {ID = 34, RemoteNames = {"rock-hit"}},
+    ["Magic Missile"] = {ID = 1, RemoteNames = {"strike", "nightlight", "twilight", "capraBeam", "manaDetonation", "star", "laser", "ghost-explode", "ghost-fire", "mitosis-missile"}},
 
---// MOBS A ATACAR
+    -- Mage
+    ["Mana Bomb"] = {ID = 4, RemoteNames = {"explosion1"}},
+    ["Thundercall"] = {ID = 77, RemoteNames = {"strike"}},
+    ["Zap"] = {ID = 32, RemoteNames = {"bolt"}},
+
+    -- Warrior
+    ["Spin Slash"] = {ID = 55, RemoteNames = {"spin"}},
+    ["Blasting Slash"] = {ID = 80, RemoteNames = {"aftershock-1", "aftershock-2", "aftershock-3", "tombSpike"}},
+    ["Ground Slam"] = {ID = 5, RemoteNames = {"spike", "warlord", "warlord-outer", "divineSlam", "divineSlam-sword", "divineSlam-outer", "shockwave", "shockwave-outer", "slash", "aftershock", "agile-strike", "bee-attack", "ghost-fire", "ghost-explode", "ghost-ring"}},
+
+    -- Hunter
+    ["Execute"] = {ID = 6, RemoteNames = {"strike", "echo", "strike_aoe", "echo_aoe", "shadowblast", "bleed"}},
+    ["Barrage"] = {ID = 15, RemoteNames = {"arrow-1", "arrow-2", "arrow-3", "holo-direct", "holo-reflect", "jade-dot", "ghost-fire", "boom"}},
+    ["Shunpo"] = {ID = 13, RemoteNames = {"dash-through", "icicle", "icicle-bomb", "ghost-explode", "ghost-fire", "ghost-ring", "mumpo-hit", "mumpo-slice"}},
+
+    -- Warlock (Mage Subclass)
+    ["Pillage Vitality"] = {ID = 40, RemoteNames = {"bolt", "fireworks"}},
+    ["Dark Pulse"] = {ID = 59, RemoteNames = {"pulse"}},
+    ["Desecrate"] = {ID = 64, RemoteNames = {"pulse"}},
+    ["Blood Plague"] = {ID = 78, RemoteNames = {"dot"}},
+    ["Chain Binding"] = {ID = 69, RemoteNames = {"bolt"}},
+
+    -- Sorcerer
+    ["Frost Storm"] = {ID = 103, RemoteNames = {"blizzard", "blizzard-burst", "iceExplosion"}},
+    ["Earth Call"] = {ID = 104, RemoteNames = {"boulder", "seismic"}},
+    ["Meteor Storm"] = {ID = 102, RemoteNames = {"explosion", "burn"}},
+    ["Unstable Charge"] = {ID = 100, RemoteNames = {"bolt", "electrified"}},
+    ["Howling Gale"] = {ID = 99, RemoteNames = {"tornado"}},
+
+    -- Cleric
+    ["Spear of Light"] = {ID = 67, RemoteNames = {"spear", "blast"}},
+    ["Flare"] = {ID = 50, RemoteNames = {"flare"}},
+
+    -- Songweaver
+    ["Vibrato"] = {ID = 544, RemoteNames = {"note", "note_encore"}},
+    ["Aria Wave"] = {ID = 541, RemoteNames = {"wave"}},
+
+    -- Paladin (Warrior Subclass)
+    ["Rebuke"] = {ID = 56, RemoteNames = {"blast", "blast_dullThud", "jadePulse"}},
+    ["Consecrate"] = {ID = 70, RemoteNames = {"blast", "pulse", "ghost-fire", "ghost-explode", "ghost-link"}},
+    ["Smite"] = {ID = 48, RemoteNames = {"smite", "thunder"}},
+
+    -- Berserker
+    ["Ferocious Assault"] = {ID = 60, RemoteNames = {"strike"}},
+    ["Blade Spin"] = {ID = 55, RemoteNames = {"spin"}},
+    ["Headlong Dive"] = {ID = 68, RemoteNames = {"impact", "firworks"}},
+    ["Blood Cleave"] = {ID = 131, RemoteNames = {"cleave", "cleave-projectile", "bleed"}},
+
+    -- Knight
+    ["Shield Bash"] = {ID = 61, RemoteNames = {"chargefire", "strike", "tsunami", "jade", "jadeExplosion"}},
+    ["Cleave"] = {ID = 128, RemoteNames = {"aftershock1", "aftershock2", "aftershock3", "aftershock4", "aftershock5", "wave"}},
+    ["Chain Pull"] = {ID = 127, RemoteNames = {"chain", "ghostflame_tick"}},
+    ["Defensive Stance"] = {ID = 129, RemoteNames = {"explosion", "holo"}},
+
+    -- Bard (Hunter Subclass)
+    ["Crescendo"] = {ID = 92, RemoteNames = {"note", "eighth-note", "burst"}},
+    ["Lullaby"] = {ID = 93, RemoteNames = {"lullaby"}},
+
+    -- Assassin
+    ["Shadow Flurry"] = {ID = 43, RemoteNames = {"strike", "fireworks"}},
+    ["Ethereal Strike"] = {ID = 79, RemoteNames = {"throw", "teleport"}},
+    ["Shadow Volley"] = {ID = 164, RemoteNames = {"impact"}},
+
+    -- Trickster
+    ["Prism Trap"] = {ID = 42, RemoteNames = {"trap"}},
+    ["Switch Strike"] = {ID = 41, RemoteNames = {"bolt"}},
+    ["Bubble Burst"] = {ID = 65, RemoteNames = {"bolt1", "bolt2", "bolt3"}},
+    ["Disengage"] = {ID = 51, RemoteNames = {"shot"}},
+
+    -- Ranger
+    ["Hail of Arrows"] = {ID = 36, RemoteNames = {"quarterSecondDamage"}},
+    ["Ricochet"] = {ID = 31, RemoteNames = {"initial", "bounce"}},
+}
+
+--// LISTA DE MOBS ACTUALIZADA (sin cambios)
 local listaDeMobs = {
     "Aevrul", "Baby Scarab", "Baby Shroom", "Baby Slime", "Baby Yeti", "Baby Yeti Tribute",
     "Bamboo Mage", "Bandit", "Bandit Skirmisher", "Battering Shroom", "Batty", "Bear",
@@ -33,7 +107,58 @@ local listaDeMobs = {
     "Undead", "Wisp"
 }
 
---// DETECTAR MOBS ACTIVOS
+--// FUNCIONES PARA OBTENER GUID E ID
+local function isValidGUID(guid)
+    return typeof(guid) == "string" and #guid == 36 and string.match(guid, "^%x+%-%x+%-%x+%-%x+%-%x+$") ~= nil
+end
+
+local function isValidExecutionData(data)
+    return typeof(data) == "table" and data["id"] ~= 0 and isValidGUID(data["ability-guid"])
+end
+
+local function getAbilityGUIDFromData(dataTable)
+    for _, data in pairs(dataTable) do
+        if isValidExecutionData(data) then
+            return data["ability-guid"], data["id"]
+        end
+    end
+    return nil, nil
+end
+
+local function getAbilityGUIDAndID()
+    local player = Players.LocalPlayer
+    local charModel = workspace.placeFolders.entityManifestCollection:FindFirstChild(player.Name)
+    if not charModel then return nil end
+
+    local Hitbox = charModel:FindFirstChild("hitbox")
+    if not Hitbox then return nil end
+
+    local ExecutionDataValue = Hitbox:FindFirstChild("activeAbilityExecutionData")
+    if not ExecutionDataValue or not ExecutionDataValue.Value then return nil end
+
+    local success, parsed = pcall(function()
+        return HttpService:JSONDecode(ExecutionDataValue.Value)
+    end)
+    if not success or typeof(parsed) ~= "table" then
+        return nil
+    end
+
+    if isValidExecutionData(parsed) then
+        return parsed["ability-guid"], parsed["id"]
+    end
+
+    return getAbilityGUIDFromData(parsed)
+end
+
+local function getRemoteNamesFromID(id)
+    for _, data in pairs(abilityData) do
+        if data.ID == id then
+            return data.RemoteNames
+        end
+    end
+end
+
+--// DETECTAR MOBS EN EL MAPA
 local function obtenerMobsActuales()
     local mobs = {}
     for _, mobName in ipairs(listaDeMobs) do
@@ -45,84 +170,91 @@ local function obtenerMobsActuales()
     return mobs
 end
 
---// HOOKEAR FireServer
-local function hookRemote()
-    local remote = ReplicatedStorage:WaitForChild("network"):WaitForChild("RemoteEvent"):WaitForChild("playerRequest_damageEntity_batch")
+--// VARIABLES CACHEADAS
+local cachedGUID = nil
+local cachedID = nil
+local cachedMobs = {}
+local remoteNameDetectado = nil -- ⚡ este es el remoteName real detectado
 
-    originalFireServer = hookfunction(remote.FireServer, function(self, ...)
-        local args = { ... }
+--// ACTUALIZAR GUID/ID
+task.spawn(function()
+    while true do
+        local nuevoGUID, nuevoID = getAbilityGUIDAndID()
+        if nuevoGUID and nuevoGUID ~= cachedGUID then
+            cachedGUID = nuevoGUID
+            cachedID = nuevoID
+            print("🎯 Nuevo GUID detectado:", cachedGUID, "ID:", cachedID)
+        end
+        task.wait(0.1)
+    end
+end)
 
-        if typeof(args[1]) == "table" then
-            local firstAttack = args[1][1]
-            if typeof(firstAttack) == "table" and #firstAttack >= 6 then
-                local newMob = firstAttack[1]
-                local newID = firstAttack[4]
-                local newRemoteName = firstAttack[5]
-                local newGUID = firstAttack[6]
+--// ACTUALIZAR MOBS
+task.spawn(function()
+    while true do
+        cachedMobs = obtenerMobsActuales()
+        task.wait(0.1)
+    end
+end)
 
-                local changed = false
+--// HOOK PARA DETECTAR REMOTE NAME USADO
+local remote = ReplicatedStorage:WaitForChild("network"):WaitForChild("RemoteEvent"):WaitForChild("playerRequest_damageEntity_batch")
 
-                if newGUID ~= cachedGUID then
-                    cachedGUID = newGUID
-                    changed = true
-                    print("🧠 Nuevo abilityGUID:", cachedGUID)
-                end
-                if newID ~= cachedID then
-                    cachedID = newID
-                    changed = true
-                    print("📌 Nuevo ID:", cachedID)
-                end
-                if newRemoteName ~= cachedRemoteName then
-                    cachedRemoteName = newRemoteName
-                    changed = true
-                    print("🔁 Nuevo RemoteName:", cachedRemoteName)
-                end
-
-                if changed then
-                    print("⚡ Nueva configuración detectada desde FireServer, se aplicará al autofarm.")
-                end
+local oldFireServer
+oldFireServer = hookfunction(remote.FireServer, function(self, data)
+    if typeof(data) == "table" and typeof(data[1]) == "table" then
+        for _, ataque in ipairs(data) do
+            if ataque[3] == "ability" then
+                remoteNameDetectado = ataque[5]
+                print("🛰️ RemoteName detectado:", remoteNameDetectado)
             end
         end
+    end
+    return oldFireServer(self, data)
+end)
 
-        return originalFireServer(self, ...)
-    end)
-end
-
---// LOOP DE ATAQUE MASIVO AUTOMÁTICO CON DATOS CACHEADOS
+--// ENVIAR ATAQUES
 task.spawn(function()
     while true do
         local success, err = pcall(function()
-            if cachedGUID and cachedID and cachedRemoteName then
-                cachedMobs = obtenerMobsActuales()
-                local remoteEvent = ReplicatedStorage:WaitForChild("network"):WaitForChild("RemoteEvent"):WaitForChild("playerRequest_damageEntity_batch")
+            if cachedGUID and cachedID and #cachedMobs > 0 then
+                local remoteEvent = remote
+                local remoteNames
+
+                -- ⚠️ si ya detectamos el nombre correcto, usar solo ese
+                if remoteNameDetectado then
+                    remoteNames = {remoteNameDetectado}
+                else
+                    remoteNames = getRemoteNamesFromID(cachedID)
+                end
 
                 for _, mobPart in ipairs(cachedMobs) do
-                    local ataques = {}
-                    for i = 1, 15 do
-                        table.insert(ataques, {
-                            mobPart,
-                            mobPart.Position,
-                            "ability",
-                            cachedID,
-                            cachedRemoteName,
-                            cachedGUID
-                        })
-                    end
+                    for _, remoteName in ipairs(remoteNames) do
+                        local ataques = {}
 
-                    remoteEvent:FireServer(ataques)
-                    print("🔥 Auto ataque a:", mobPart.Name)
-                    task.wait(0.01)
+                        for i = 1, 3 do
+                            table.insert(ataques, {
+                                mobPart,
+                                mobPart.Position,
+                                "ability",
+                                cachedID,
+                                remoteName,
+                                cachedGUID
+                            })
+                        end
+
+                        remoteEvent:FireServer(ataques)
+                        print("⚔️ Ataque x15 enviado a:", mobPart.Name, "| Remote:", remoteName, "| ID:", cachedID)
+                        task.wait(0.01)
+                    end
                 end
             end
         end)
 
         if not success then
-            warn("❌ Error en ataque automático:", err)
+            warn("⚠️ Error al enviar RemoteEvent:", err)
         end
 
-        task.wait(0.2) -- Más relajado para no sobrecargar
+        task.wait(0.1)
     end
 end)
-
---// INICIAR HOOK
-hookRemote()
