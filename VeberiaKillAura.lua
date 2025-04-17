@@ -4,6 +4,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
+--// BASE DE DATOS DE HABILIDADES
 local abilityData = {
     -- Starter Abilities
     ["Rock Throw"] = {ID = 34, RemoteNames = {"rock-hit"}},
@@ -83,7 +84,8 @@ local abilityData = {
     ["Ricochet"] = {ID = 31, RemoteNames = {"initial", "bounce"}},
 }
 
---// LISTA DE MOBS QUE PUEDEN SER ATACADOS
+
+--// LISTA DE MOBS ACTUALIZADA
 local listaDeMobs = {
     "Aevrul", "Baby Scarab", "Baby Shroom", "Baby Slime", "Baby Yeti", "Baby Yeti Tribute",
     "Bamboo Mage", "Bandit", "Bandit Skirmisher", "Battering Shroom", "Batty", "Bear",
@@ -106,7 +108,7 @@ local listaDeMobs = {
     "Undead", "Wisp"
 }
 
---// FUNCIONES DE UTILIDAD PARA GUID
+--// FUNCIONES DE UTILIDAD PARA GUID E ID
 local function isValidGUID(guid)
     return typeof(guid) == "string" and #guid == 36 and string.match(guid, "^%x+%-%x+%-%x+%-%x+%-%x+$") ~= nil
 end
@@ -124,8 +126,7 @@ local function getAbilityGUIDFromData(dataTable)
     return nil, nil
 end
 
---// DETECCIÓN DE ABILITY GUID + ID
-local function getCurrentAbilityGUIDAndID()
+local function getAbilityGUIDAndID()
     local player = Players.LocalPlayer
     local charModel = workspace.placeFolders.entityManifestCollection:FindFirstChild(player.Name)
     if not charModel then return nil end
@@ -134,9 +135,7 @@ local function getCurrentAbilityGUIDAndID()
     if not Hitbox then return nil end
 
     local ExecutionDataValue = Hitbox:FindFirstChild("activeAbilityExecutionData")
-    if not ExecutionDataValue or not ExecutionDataValue.Value then
-        return nil
-    end
+    if not ExecutionDataValue or not ExecutionDataValue.Value then return nil end
 
     local success, parsed = pcall(function()
         return HttpService:JSONDecode(ExecutionDataValue.Value)
@@ -145,26 +144,23 @@ local function getCurrentAbilityGUIDAndID()
         return nil
     end
 
-    local guid = parsed["ability-guid"]
-    local id = parsed["id"]
-    if isValidGUID(guid) and id then
-        return guid, id
-    else
-        return getAbilityGUIDFromData(parsed)
+    if isValidExecutionData(parsed) then
+        return parsed["ability-guid"], parsed["id"]
     end
+
+    return getAbilityGUIDFromData(parsed)
 end
 
---// OBTENER REMOTENAMES DESDE ID
 local function getRemoteNamesFromID(id)
     for _, data in pairs(abilityData) do
         if data.ID == id then
             return data.RemoteNames
         end
     end
-    return {"default-remote"} -- fallback por si no encuentra
+    return {"explosion1"} -- Fallback por si no se encuentra
 end
 
---// DETECTAR MOBS ACTIVOS EN EL MAPA
+--// FUNCION PARA DETECTAR MOBS PRESENTES EN EL MAPA
 local function obtenerMobsActuales()
     local mobs = {}
     for _, mobName in ipairs(listaDeMobs) do
@@ -176,41 +172,67 @@ local function obtenerMobsActuales()
     return mobs
 end
 
---// ATAQUE MASIVO CON MÚLTIPLES REMOTENAMES
-local function atacarTodosLosMobs(abilityGUID, abilityID)
-    local mobsActuales = obtenerMobsActuales()
-    if #mobsActuales == 0 then return end
+--// DATOS CACHEADOS
+local cachedGUID = nil
+local cachedID = nil
+local cachedMobs = {}
 
-    local ataques = {}
-    local remoteNames = getRemoteNamesFromID(abilityID)
-
-    for _, mobPart in ipairs(mobsActuales) do
-        for _, remoteName in ipairs(remoteNames) do
-            table.insert(ataques, {mobPart, mobPart.Position, "ability", abilityID, remoteName, abilityGUID})
-        end
-    end
-
-    if #ataques > 0 then
-        ReplicatedStorage:WaitForChild("network"):WaitForChild("RemoteEvent"):WaitForChild("playerRequest_damageEntity_batch"):FireServer(ataques)
-    end
-end
-
---// LOOP AUTOMÁTICO
-local abilityGUIDGuardado = nil
-local abilityIDGuardado = nil
+--// ACTUALIZAR GUID E ID CADA 0.1s
 task.spawn(function()
     while true do
-        local nuevoGUID, nuevoID = getCurrentAbilityGUIDAndID()
-        if isValidGUID(nuevoGUID) and nuevoGUID ~= abilityGUIDGuardado then
-            print("GUID actualizado:", nuevoGUID, "ID:", nuevoID)
-            abilityGUIDGuardado = nuevoGUID
-            abilityIDGuardado = nuevoID
+        local nuevoGUID, nuevoID = getAbilityGUIDAndID()
+        if nuevoGUID and nuevoGUID ~= cachedGUID then
+            cachedGUID = nuevoGUID
+            cachedID = nuevoID
+            print("Nuevo GUID detectado:", cachedGUID, "ID:", cachedID)
+        end
+        task.wait(0.1)
+    end
+end)
+
+--// ACTUALIZAR MOBS CADA 0.1s
+task.spawn(function()
+    while true do
+        cachedMobs = obtenerMobsActuales()
+        task.wait(0.1)
+    end
+end)
+
+--// ENVIAR RemoteEvent CADA 0.1s (1 mob a la vez, 15 ataques c/u)
+task.spawn(function()
+    while true do
+        local success, err = pcall(function()
+            if cachedGUID and cachedID and #cachedMobs > 0 then
+                local remoteEvent = ReplicatedStorage:WaitForChild("network"):WaitForChild("RemoteEvent"):WaitForChild("playerRequest_damageEntity_batch")
+                local remoteNames = getRemoteNamesFromID(cachedID)
+
+                for _, mobPart in ipairs(cachedMobs) do
+                    for _, remoteName in ipairs(remoteNames) do
+                        local ataques = {}
+
+                        for i = 1, 15 do
+                            table.insert(ataques, {
+                                mobPart,
+                                mobPart.Position,
+                                "ability",
+                                cachedID,
+                                remoteName,
+                                cachedGUID
+                            })
+                        end
+
+                        remoteEvent:FireServer(ataques)
+                        print("Ataque x15 enviado a:", mobPart.Name, "| Remote:", remoteName, "| ID:", cachedID)
+                        task.wait(0.01)
+                    end
+                end
+            end
+        end)
+
+        if not success then
+            warn("Error al enviar RemoteEvent:", err)
         end
 
-        if abilityGUIDGuardado and abilityIDGuardado then
-            atacarTodosLosMobs(abilityGUIDGuardado, abilityIDGuardado)
-        end
-
-        task.wait(0.5)
+        task.wait(0.1)
     end
 end)
