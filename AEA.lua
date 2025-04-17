@@ -84,8 +84,9 @@ local abilityData = {
     ["Ricochet"] = {ID = 31, RemoteNames = {"initial", "bounce"}},
 }
 
---// LISTA DE MOBS (recortada por simplicidad)
-local listaDeMobs = {"Aevrul", "Baby Scarab", "Baby Shroom", "Baby Slime", "Baby Yeti", "Baby Yeti Tribute",
+--// LISTA DE MOBS ACTUALIZADA
+local listaDeMobs = {
+    "Aevrul", "Baby Scarab", "Baby Shroom", "Baby Slime", "Baby Yeti", "Baby Yeti Tribute",
     "Bamboo Mage", "Bandit", "Bandit Skirmisher", "Battering Shroom", "Batty", "Bear",
     "Big Slime", "Birthday Mage", "Boar", "Book", "Bushi", "Chad", "Chicken", "Crabby",
     "Crow", "Cultist", "Dark Cleric", "Deathsting", "Dragon Boss", "Dragon Monk", "Dummy",
@@ -103,9 +104,10 @@ local listaDeMobs = {"Aevrul", "Baby Scarab", "Baby Shroom", "Baby Slime", "Baby
     "Skeleton", "Skull Boss", "Slime", "Snel", "Soulcage", "Spider", "Spider Queen",
     "Spiderling", "Stingtail", "Sunken Savage", "Terror of the Deep", "The Yeti",
     "Toni", "Tortoise", "Treemuk", "Tribute Gate", "Trickster Spirit", "Tumbleweed",
-    "Undead", "Wisp"}
+    "Undead", "Wisp"
+}
 
---// FUNCIONES DE UTILIDAD
+--// FUNCIONES DE UTILIDAD PARA GUID E ID
 local function isValidGUID(guid)
     return typeof(guid) == "string" and #guid == 36 and string.match(guid, "^%x+%-%x+%-%x+%-%x+%-%x+$") ~= nil
 end
@@ -137,22 +139,15 @@ local function getAbilityGUIDAndID()
     local success, parsed = pcall(function()
         return HttpService:JSONDecode(ExecutionDataValue.Value)
     end)
-    if not success or typeof(parsed) ~= "table" then return nil end
+    if not success or typeof(parsed) ~= "table" then
+        return nil
+    end
 
     if isValidExecutionData(parsed) then
         return parsed["ability-guid"], parsed["id"]
     end
 
     return getAbilityGUIDFromData(parsed)
-end
-
-local function getRemoteNamesFromID(id)
-    for _, data in pairs(abilityData) do
-        if data.ID == id then
-            return data.RemoteNames
-        end
-    end
-    return {"explosion1"} -- Fallback
 end
 
 local function obtenerMobsActuales()
@@ -166,32 +161,31 @@ local function obtenerMobsActuales()
     return mobs
 end
 
---// DATOS CACHEADOS
-local cachedGUID = nil
-local cachedID = nil
-local cachedMobs = {}
-local cachedRemoteName = nil
+--// HOOKEO DE FireServer PARA CAPTURAR remoteName
+local remoteNameActual = nil
+local originalFireServer = nil
 
---// HOOK A playerRequest_damageEntity_batch PARA DETECTAR remoteName
-local remoteEvent = ReplicatedStorage.network.RemoteEvent.playerRequest_damageEntity_batch
-local oldFireServer = remoteEvent.FireServer
+local function hookFireServer()
+    local remoteEvent = ReplicatedStorage:WaitForChild("network"):WaitForChild("RemoteEvent"):WaitForChild("playerRequest_damageEntity_batch")
+    originalFireServer = originalFireServer or remoteEvent.FireServer
 
-hookfunction(remoteEvent.FireServer, function(self, data)
-    local success, result = pcall(function()
-        if typeof(data) == "table" and typeof(data[1]) == "table" then
-            local entry = data[1][1]
-            if typeof(entry) == "table" and entry[3] == "ability" then
-                cachedRemoteName = entry[5] -- Guardamos solo el remoteName real
-                print("Nuevo remoteName detectado:", cachedRemoteName)
-            end
+    remoteEvent.FireServer = function(self, ...)
+        local args = {...}
+        if typeof(args[1]) == "table" and typeof(args[1][1]) == "table" and args[1][1][5] then
+            remoteNameActual = args[1][1][5]
+            print("RemoteName detectado:", remoteNameActual)
         end
-    end)
+        return originalFireServer(self, ...)
+    end
+end
 
-    return oldFireServer(self, data)
-end)
+hookFireServer()
+
+--// CACHE DE DATOS
+local cachedGUID, cachedID, cachedMobs = nil, nil, {}
 
 --// ACTUALIZAR GUID E ID CADA 0.1s
-task.spawn(function()
+coroutine.wrap(function()
     while true do
         local nuevoGUID, nuevoID = getAbilityGUIDAndID()
         if nuevoGUID and nuevoGUID ~= cachedGUID then
@@ -201,44 +195,38 @@ task.spawn(function()
         end
         task.wait(0.1)
     end
-end)
+end)()
 
 --// ACTUALIZAR MOBS CADA 0.1s
-task.spawn(function()
+coroutine.wrap(function()
     while true do
         cachedMobs = obtenerMobsActuales()
         task.wait(0.1)
     end
-end)
+end)()
 
---// ENVIAR RemoteEvent CADA 0.1s SOLO SI TENEMOS remoteName VALIDO
-task.spawn(function()
+--// ENVIAR RemoteEvent CADA 0.1s SOLO SI remoteNameActual ESTÁ DISPONIBLE
+coroutine.wrap(function()
     while true do
-        local success, err = pcall(function()
-            if cachedGUID and cachedID and cachedRemoteName and #cachedMobs > 0 then
-                for _, mobPart in ipairs(cachedMobs) do
-                    local ataques = {}
-                    for i = 1, 15 do
-                        table.insert(ataques, {
-                            mobPart,
-                            mobPart.Position,
-                            "ability",
-                            cachedID,
-                            cachedRemoteName,
-                            cachedGUID
-                        })
-                    end
-                    remoteEvent:FireServer(ataques)
-                    print("Ataque x15 enviado a:", mobPart.Name, "| Remote:", cachedRemoteName, "| ID:", cachedID)
-                    task.wait(0.01)
+        if cachedGUID and cachedID and remoteNameActual and #cachedMobs > 0 then
+            local remoteEvent = ReplicatedStorage:WaitForChild("network"):WaitForChild("RemoteEvent"):WaitForChild("playerRequest_damageEntity_batch")
+            for _, mobPart in ipairs(cachedMobs) do
+                local ataques = {}
+                for i = 1, 15 do
+                    table.insert(ataques, {
+                        mobPart,
+                        mobPart.Position,
+                        "ability",
+                        cachedID,
+                        remoteNameActual,
+                        cachedGUID
+                    })
                 end
+                remoteEvent:FireServer({ataques})
+                print("Ataque x15 enviado a:", mobPart.Name, "| Remote:", remoteNameActual)
+                task.wait(0.01)
             end
-        end)
-
-        if not success then
-            warn("Error al enviar RemoteEvent:", err)
         end
-
         task.wait(0.1)
     end
-end)
+end)()
