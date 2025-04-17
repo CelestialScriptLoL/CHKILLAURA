@@ -130,112 +130,46 @@ local function getAbilityGUIDAndID()
     local charModel = workspace.placeFolders.entityManifestCollection:FindFirstChild(player.Name)
     if not charModel then return nil end
 
-    local Hitbox = charModel:FindFirstChild("hitbox")
-    if not Hitbox then return nil end
-
-    local ExecutionDataValue = Hitbox:FindFirstChild("activeAbilityExecutionData")
-    if not ExecutionDataValue or not ExecutionDataValue.Value then return nil end
-
-    local success, parsed = pcall(function()
-        return HttpService:JSONDecode(ExecutionDataValue.Value)
-    end)
-    if not success or typeof(parsed) ~= "table" then
-        return nil
-    end
-
-    if isValidExecutionData(parsed) then
-        return parsed["ability-guid"], parsed["id"]
-    end
-
-    return getAbilityGUIDFromData(parsed)
+    local currentAbilityGUID, currentAbilityID = getAbilityGUIDFromData(charModel:GetChildren())
+    return currentAbilityGUID, currentAbilityID
 end
 
-local function obtenerMobsActuales()
-    local mobs = {}
-    for _, mobName in ipairs(listaDeMobs) do
-        local mobPart = workspace.placeFolders.entityManifestCollection:FindFirstChild(mobName)
-        if mobPart and mobPart:IsA("BasePart") then
-            table.insert(mobs, mobPart)
-        end
-    end
-    return mobs
-end
-
---// HOOKEO DE FireServer PARA CAPTURAR remoteName
-local remoteNameActual = nil
-local originalFireServer
-originalFireServer = hookmetamethod(game, "__namecall", function(self, ...)
+--// HOOKING DEL REMOTEEVENT Y FIRE SERVER
+local oldNamecall
+oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
     local args = { ... }
     local method = getnamecallmethod()
 
-    if not checkcaller() and method == "FireServer" and typeof(self) == "Instance" and self:IsA("RemoteEvent") then
-        if self.Name == "playerRequest_damageEntity_batch" then
-            local data = args[1]
-            if typeof(data) == "table" and typeof(data[1]) == "table" and typeof(data[1][1]) == "table" then
-                local attackInfo = data[1][1]
-                local guid = attackInfo[6]
-                local id = attackInfo[4]
-                local remoteName = attackInfo[5]
+    -- Solo se dispara cuando es playerRequest_damageEntity_batch
+    if method == "FireServer" and tostring(self) == "playerRequest_damageEntity_batch" then
+        local data = args[1]
+        if typeof(data) == "table" and typeof(data[1]) == "table" and typeof(data[1][1]) == "Instance" then
+            local hitData = data[1]
 
-                if guid ~= cachedGUID then
-                    cachedGUID = guid
-                    cachedID = id
-                    cachedRemoteName = remoteName
-                    print("Nuevo GUID detectado desde hook:", guid, "ID:", id, "RemoteName:", remoteName)
-                end
+            local mobName = hitData[1].Name
+            local mobPos = hitData[2]
+            local damageType = hitData[3]
+            local cachedID = hitData[4]
+            local remoteName = hitData[5]
+            local abilityGUID = hitData[6]
+
+            if damageType == "ability" and remoteNamesWhitelist[remoteName] then
+                currentAbilityGUID = abilityGUID
+                currentRemoteName = remoteName
             end
         end
     end
 
-    return originalFireServer(self, ...)
+    return oldNamecall(self, ...)
 end)
 
---// CACHE DE DATOS
-local cachedGUID, cachedID, cachedMobs = nil, nil, {}
-
---// ACTUALIZAR GUID E ID CADA 0.1s
-coroutine.wrap(function()
+-- Función que ejecuta las habilidades
+task.spawn(function()
     while true do
-        local nuevoGUID, nuevoID = getAbilityGUIDAndID()
-        if nuevoGUID and nuevoGUID ~= cachedGUID then
-            cachedGUID = nuevoGUID
-            cachedID = nuevoID
-            print("Nuevo GUID detectado:", cachedGUID, "ID:", cachedID)
+        task.wait(0.2)
+
+        if currentAbilityGUID and currentRemoteName then
+            -- Haz un cambio o usa lo que necesitas aquí, y luego manda la habilidad con esos datos
         end
-        task.wait(0.1)
     end
-end)()
-
---// ACTUALIZAR MOBS CADA 0.1s
-coroutine.wrap(function()
-    while true do
-        cachedMobs = obtenerMobsActuales()
-        task.wait(0.1)
-    end
-end)()
-
---// ENVIAR RemoteEvent CADA 0.1s SOLO SI remoteNameActual ESTÁ DISPONIBLE
-coroutine.wrap(function()
-    while true do
-        if cachedGUID and cachedID and remoteNameActual and #cachedMobs > 0 then
-            local remoteEvent = ReplicatedStorage:WaitForChild("network"):WaitForChild("RemoteEvent"):WaitForChild("playerRequest_damageEntity_batch")
-            for _, mobPart in ipairs(cachedMobs) do
-                local ataques = {}
-                for i = 1, 15 do
-                    table.insert(ataques, {
-                        mobPart,
-                        mobPart.Position,
-                        "ability",
-                        cachedID,
-                        remoteNameActual,
-                        cachedGUID
-                    })
-                end
-                remoteEvent:FireServer({ataques})
-                print("Ataque x15 enviado a:", mobPart.Name, "| Remote:", remoteNameActual)
-                task.wait(0.01)
-            end
-        end
-        task.wait(0.1)
-    end
-end)()
+end)
